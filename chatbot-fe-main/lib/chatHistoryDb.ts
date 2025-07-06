@@ -1,40 +1,58 @@
-import { openDB, DBSchema } from 'idb';
+import { openDB } from 'idb';
 
-interface ChatHistoryDB extends DBSchema {
-  chat: {
-    key: number; // auto-incremented id
-    value: {
-      id?: number;
-      user: string;
-      agent: string;
-      timestamp: number;
-    };
-    indexes: { 'by-timestamp': number };
-  };
+interface Message {
+  id: string
+  content: string
+  role: "user" | "assistant"
+  timestamp: Date
+  images?: string[]
 }
 
-export async function getChatDB() {
-  return openDB<ChatHistoryDB>('chat-history-db', 1, {
+const dbName = 'chatbot-history';
+const storeName = 'messages';
+const version = 1;
+
+async function initDB() {
+  return openDB(dbName, version, {
     upgrade(db) {
-      if (!db.objectStoreNames.contains('chat')) {
-        const store = db.createObjectStore('chat', { keyPath: 'id', autoIncrement: true });
-        store.createIndex('by-timestamp', 'timestamp');
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.createObjectStore(storeName, { keyPath: 'id' });
       }
     },
   });
 }
 
-export async function addChat(user: string, agent: string) {
-  const db = await getChatDB();
-  await db.add('chat', { user, agent, timestamp: Date.now() });
+export async function loadChatHistory(): Promise<Message[]> {
+  try {
+    const db = await initDB();
+    const messages = await db.getAll(storeName);
+    return messages.map(msg => ({
+      ...msg,
+      timestamp: new Date(msg.timestamp)
+    }));
+  } catch (error) {
+    console.error('Error loading chat history:', error);
+    return [];
+  }
 }
 
-export async function getAllChats() {
-  const db = await getChatDB();
-  return db.getAll('chat');
+export async function addMessageToHistory(message: Message): Promise<void> {
+  try {
+    const db = await initDB();
+    await db.add(storeName, {
+      ...message,
+      timestamp: message.timestamp.toISOString()
+    });
+  } catch (error) {
+    console.error('Error adding message to history:', error);
+  }
 }
 
-export async function clearChats() {
-  const db = await getChatDB();
-  await db.clear('chat');
+export async function clearHistory(): Promise<void> {
+  try {
+    const db = await initDB();
+    await db.clear(storeName);
+  } catch (error) {
+    console.error('Error clearing chat history:', error);
+  }
 }

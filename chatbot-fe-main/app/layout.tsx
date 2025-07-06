@@ -7,8 +7,8 @@ import { Toaster } from '@/components/ui/sonner';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Cashfree Assistant - Payment Integration Helper',
-  description: 'AI-powered assistant for Cashfree payments integration and support',
+  title: 'Walmart Assistant',
+  description: 'AI-powered assistant for Walmart',
 };
 
 export default function RootLayout({

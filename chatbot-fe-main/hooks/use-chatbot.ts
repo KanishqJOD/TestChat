@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { addChat, getAllChats, clearChats } from "@/lib/chatHistoryDb";
+import { addChat, getAllChats, clearChats, addMessageToHistory, loadChatHistory } from "@/lib/chatHistoryDb";
 import { toast } from "sonner";
+import { v4 as uuidv4 } from "uuid";
 
 interface Message {
   id: string;
   content: string;
   role: "user" | "assistant";
   timestamp: Date;
+  images?: string[];
 }
 
 interface Chat {
@@ -16,12 +18,13 @@ interface Chat {
   user: string;
   agent: string;
   timestamp: string;
+  images?: string[];
 }
 
 interface UseChatbotReturn {
   messages: Message[];
   isLoading: boolean;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (message: string, files?: File[]) => Promise<void>;
   resetChat: () => Promise<void>;
   initializeChat: () => Promise<void>;
 }
@@ -70,38 +73,13 @@ export function useChatbot(): UseChatbotReturn {
   const inMemoryChats = useRef<Chat[]>([]);
   const isIndexedDBBlocked = useRef(false);
 
-  // Load chat history from IndexedDB on mount
+  // Load chat history on mount
   useEffect(() => {
-    (async () => {
-      try {
-        const chats = await getAllChats();
-        inMemoryChats.current = chats;
-        const loadedMessages: Message[] = [];
-        chats.forEach(chat => {
-          loadedMessages.push({
-            id: `${chat.id}-user`,
-            content: chat.user,
-            role: "user",
-            timestamp: new Date(chat.timestamp),
-          });
-          loadedMessages.push({
-            id: `${chat.id}-agent`,
-            content: chat.agent,
-            role: "assistant",
-            timestamp: new Date(chat.timestamp),
-          });
-        });
-        setMessages(loadedMessages);
-        hasInitializedRef.current = loadedMessages.length > 0;
-      } catch (err) {
-        console.error("IndexedDB error:", err);
-        toast.error("Chat history is unavailable in this environment (IndexedDB blocked). Using in-memory fallback.");
-        isIndexedDBBlocked.current = true;
-        inMemoryChats.current = [];
-        setMessages([]);
-        hasInitializedRef.current = false;
+    loadChatHistory().then(history => {
+      if (history && history.length > 0) {
+        setMessages(history);
       }
-    })();
+    });
   }, []);
 
   const initializeChat = useCallback(async () => {
@@ -132,126 +110,84 @@ export function useChatbot(): UseChatbotReturn {
     }
   }, []);
 
-  const sendMessageInternal = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (text: string, images?: string[], audioBlob?: Blob) => {
+    if (!text.trim() && !images?.length && !audioBlob) return;
+
+    // Create user message
+    const userMessage: Message = {
+      id: uuidv4(),
+      content: text,
+      role: "user",
+      timestamp: new Date(),
+      images
+    };
+
+    // Add user message to state and history
+    setMessages(prev => [...prev, userMessage]);
+    await addMessageToHistory(userMessage);
+
+    // Start loading state
+    setIsLoading(true);
+
     try {
-      let chats: Chat[] = [];
-      if (isIndexedDBBlocked.current) {
-        chats = inMemoryChats.current;
-      } else {
-        try {
-          chats = await getAllChats();
-        } catch (err) {
-          console.error("IndexedDB error:", err);
-          toast.error("Chat history is unavailable in this environment (IndexedDB blocked). Using in-memory fallback.");
-          isIndexedDBBlocked.current = true;
-          chats = inMemoryChats.current;
-        }
-      }
-      const conversationHistory = chats
-        .map(chat => `User: ${chat.user}\nAssistant: ${chat.agent}`)
-        .join("\n");
-
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        content,
-        role: "user",
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, userMessage]);
-
-      const response = await apiCall("/api/chat/message", {
-        method: "POST",
-        body: JSON.stringify({
-          message: content,
-          conversationHistory,
-        }),
+      // Log the message data that would be sent to MCP server
+      console.log("Message data to be sent to MCP server:", {
+        text,
+        images: images?.length || 0,
+        hasAudio: !!audioBlob
       });
 
-      if (response.success) {
-        if (isIndexedDBBlocked.current) {
-          inMemoryChats.current.push({
-            id: Date.now().toString(),
-            user: content,
-            agent: response.response,
-            timestamp: new Date().toISOString(),
-          });
-        } else {
-          try {
-            await addChat(content, response.response);
-          } catch (err) {
-            console.error("IndexedDB error:", err);
-            isIndexedDBBlocked.current = true;
-            inMemoryChats.current.push({
-              id: Date.now().toString(),
-              user: content,
-              agent: response.response,
-              timestamp: new Date().toISOString(),
-            });
-          }
-        }
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `${Date.now()}-agent`,
-            content: response.response,
-            role: "assistant",
-            timestamp: new Date(),
-          },
-        ]);
-      } else {
-        toast.error(response.error || "Failed to send message");
-      }
-    } catch (error: any) {
-      console.error("Failed to send message:", error);
-      if (error.name !== 'AbortError') {
-        toast.error("Failed to send message. Please try again.");
-      }
+      // Mock assistant response for now
+      const mockResponses = [
+        "I can help you find great deals on those items! Let me check our inventory.",
+        "Based on your images, I recommend checking out these similar products...",
+        "Here are some popular options in that category with great reviews...",
+        "I found several matching items at competitive prices. Would you like to see them?",
+      ];
+      
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        content: mockResponses[Math.floor(Math.random() * mockResponses.length)],
+        role: "assistant",
+        timestamp: new Date()
+      };
+
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Add assistant message
+      setMessages(prev => [...prev, assistantMessage]);
+      await addMessageToHistory(assistantMessage);
+    } catch (error) {
+      console.error("Error processing message:", error);
+      // Add error message
+      const errorMessage: Message = {
+        id: uuidv4(),
+        content: "Sorry, I encountered an error processing your request. Please try again.",
+        role: "assistant",
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      await addMessageToHistory(errorMessage);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const sendMessage = useCallback(async (content: string) => {
-    setIsLoading(true);
-    await sendMessageInternal(content);
-  }, [sendMessageInternal]);
-
   const resetChat = useCallback(async () => {
-    if (initializingRef.current) return;
-
-    // Cancel any ongoing request
-    if (currentRequestRef.current) {
-      currentRequestRef.current.abort();
-    }
-
-    // Clear debounce timeout
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-    }
-
     try {
       setIsLoading(true);
       await apiCall("/api/chat/reset", { method: "POST" });
+      setMessages([]);
       if (isIndexedDBBlocked.current) {
         inMemoryChats.current = [];
       } else {
-        try {
-          await clearChats();
-        } catch (err) {
-          console.error("IndexedDB error:", err);
-          toast.error("Chat history could not be cleared (IndexedDB blocked).");
-          isIndexedDBBlocked.current = true;
-          inMemoryChats.current = [];
-        }
+        await clearChats();
       }
-      setMessages([]);
-      hasInitializedRef.current = false;
-      toast.success("Chat reset successfully");
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        toast.error("Failed to reset chat");
-      }
+      toast.success("Chat history cleared");
+    } catch (error) {
+      console.error("Failed to reset chat:", error);
+      toast.error("Failed to reset chat. Please try again.");
     } finally {
       setIsLoading(false);
     }

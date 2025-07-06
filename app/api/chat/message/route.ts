@@ -3,11 +3,27 @@ import { InputType } from '@/lib/types';
 
 const VALID_TYPES = ['text', 'image', 'audio'] as const;
 
-// Mock responses for development/testing
-const MOCK_RESPONSES: Record<InputType, string> = {
-  text: "I understand you're looking for assistance. How can I help you today?",
-  image: "I can see the image you've shared. It appears to be a product image. Would you like more information about similar items?",
-  audio: "I've processed your audio message. Let me help you with your request."
+// Mock responses for different input types
+const mockResponses = {
+  text: (message: string) => ({
+    text: `I understand you said: "${message}". This is a mock response that will be replaced with MCP agent integration.`
+  }),
+  image: (message: string) => ({
+    text: "I can see the image you uploaded. Here's what I found:",
+    boundingBoxes: [
+      {
+        label: "Sample Object 1",
+        box_2d: [100, 100, 200, 200]
+      },
+      {
+        label: "Sample Object 2",
+        box_2d: [300, 300, 400, 400]
+      }
+    ]
+  }),
+  audio: (transcription: string) => ({
+    text: `I heard your voice message${transcription ? `: "${transcription}"` : ''}. This will be processed by the MCP agent in the future.`
+  })
 };
 
 export async function POST(req: NextRequest) {
@@ -27,9 +43,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid input type' }, { status: 400 });
     }
 
-    // Validate message
-    if (!message) {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+    // Validate message for text input
+    if (!message && type === 'text') {
+      return NextResponse.json({ error: 'Message is required for text input' }, { status: 400 });
     }
 
     // For image and audio, validate base64Data
@@ -37,22 +53,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Base64 data is required for media messages' }, { status: 400 });
     }
 
-    // Process the message
-    // In a real implementation, this would send the data to your AI service
-    // The base64Data is processed here but not saved
-    if (base64Data) {
-      console.log('Processing media data:', {
-        type,
-        dataSize: base64Data.length,
-        timestamp: new Date().toISOString()
-      });
+    // Get mock response based on type
+    let response;
+    switch (type) {
+      case 'text':
+        response = mockResponses.text(message);
+        break;
+      case 'image':
+        response = mockResponses.image(message || '');
+        break;
+      case 'audio':
+        response = mockResponses.audio(message || '');
+        break;
     }
-
-    // For development/testing, return mock responses
-    const response = MOCK_RESPONSES[type as InputType];
-    
-    // Simulate a small delay to make the loading state visible
-    await new Promise(resolve => setTimeout(resolve, 500));
 
     return NextResponse.json({ response });
   } catch (error: any) {

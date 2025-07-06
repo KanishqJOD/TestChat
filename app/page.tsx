@@ -1,14 +1,11 @@
-import ChatInterface from './components/ChatInterface';
+import { ChatInterface } from './components/ChatInterface';
 
 export default function Home() {
   return (
-    <main className="min-h-screen">
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">
-          AI Shopping Assistant
-        </h1>
+    <div className="flex items-center justify-center min-h-screen w-full">
+      <div className="w-full h-full md:max-w-2xl lg:max-w-3xl mx-auto">
         <ChatInterface />
       </div>
-    </main>
+    </div>
   );
 } 
